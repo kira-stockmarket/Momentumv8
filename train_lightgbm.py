@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 import lightgbm as lgb
 import optuna
-import optuna_integration
 import joblib
 import sqlite3
 
@@ -51,7 +50,10 @@ def prepare_ranking_data(df):
     df['relevance'] = df.groupby('Date')['target_fwd_risk_adj'].transform(
         lambda x: pd.qcut(x, q=5, labels=False, duplicates='drop')
     )
+    
+    # Drop NaNs and strictly reset the index to prevent slice boundary errors
     df.dropna(subset=['relevance'], inplace=True)
+    df.reset_index(drop=True, inplace=True)
     
     exclude_cols = ['Date', 'symbol', 'target_fwd_risk_adj', 'target_raw_ret', 'relevance']
     features = [c for c in df.columns if c not in exclude_cols]
@@ -99,8 +101,9 @@ def objective(trial, df, features, cv_splits):
     cv_scores = []
     
     for train_idx, val_idx in cv_splits:
-        train_df = df.iloc[train_idx]
-        val_df = df.iloc[val_idx]
+        # Changed from .iloc to .loc to map index labels perfectly
+        train_df = df.loc[train_idx]
+        val_df = df.loc[val_idx]
         
         q_train = train_df.groupby('Date').size().values
         q_val = val_df.groupby('Date').size().values
@@ -113,8 +116,7 @@ def objective(trial, df, features, cv_splits):
             train_data,
             valid_sets=[val_data],
             callbacks=[
-                lgb.early_stopping(stopping_rounds=40, verbose=False),
-                optuna_integration.LightGBMPruningCallback(trial, "ndcg@20", valid_name="valid_0")
+                lgb.early_stopping(stopping_rounds=40, verbose=False)
             ]
         )
         
@@ -137,8 +139,9 @@ def generate_oos_predictions(df, features, cv_splits, best_params):
     best_params['n_estimators'] = 800
     
     for train_idx, val_idx in cv_splits:
-        train_df = df.iloc[train_idx]
-        val_df = df.iloc[val_idx]
+        # Changed from .iloc to .loc to map index labels perfectly
+        train_df = df.loc[train_idx]
+        val_df = df.loc[val_idx]
         
         q_train = train_df.groupby('Date').size().values
         train_data = lgb.Dataset(train_df[features], label=train_df['relevance'], group=q_train)
@@ -172,8 +175,7 @@ if __name__ == "__main__":
         study_name=STUDY_NAME, 
         storage=DB_FILE, 
         load_if_exists=True,
-        direction="maximize",
-        pruner=optuna.pruners.MedianPruner(n_warmup_steps=10)
+        direction="maximize"
     )
     
     try:
