@@ -23,7 +23,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install optuna
+          pip install optuna optuna-integration
 
       - name: Execute 5.5 Hour Optimization Engine
         run: python train_lightgbm.py
