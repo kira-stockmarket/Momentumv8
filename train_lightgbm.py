@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import lightgbm as lgb
 import optuna
+import optuna_integration
 import joblib
 import sqlite3
 
@@ -28,7 +29,6 @@ def load_and_compile_data():
     for f in files:
         sym = os.path.basename(f).replace(".parquet", "")
         df = pd.read_parquet(f).reset_index()
-        # Rename index column to Date if necessary
         if 'index' in df.columns:
             df.rename(columns={'index': 'Date'}, inplace=True)
         df['symbol'] = sym
@@ -92,7 +92,7 @@ def objective(trial, df, features, cv_splits):
         "bagging_fraction": trial.suggest_float("bagging_fraction", 0.5, 0.9),
         "bagging_freq": trial.suggest_int("bagging_freq", 1, 5),
         "n_estimators": 600,
-        "n_jobs": -1,  # Maximize CPU utilization
+        "n_jobs": -1,  
         "verbose": -1
     }
     
@@ -114,14 +114,12 @@ def objective(trial, df, features, cv_splits):
             valid_sets=[val_data],
             callbacks=[
                 lgb.early_stopping(stopping_rounds=40, verbose=False),
-                # Optuna pruning callback removes unpromising trials early
-                optuna.integration.LightGBMPruningCallback(trial, "ndcg@20", valid_name="valid_0")
+                optuna_integration.LightGBMPruningCallback(trial, "ndcg@20", valid_name="valid_0")
             ]
         )
         
         cv_scores.append(model.best_score['valid_0']['ndcg@20'])
         
-        # Free memory aggressively inside the loop
         del train_df, val_df, train_data, val_data, model
         gc.collect()
         
@@ -153,11 +151,9 @@ def generate_oos_predictions(df, features, cv_splits, best_params):
         
     oos_df = pd.concat(oos_list).sort_values(['Date', 'symbol'])
     
-    # Compress and save OOS predictions (typically ~15MB, well under Git limits)
     oos_df.to_parquet(OOS_OUTPUT_FILE, engine='pyarrow', compression='snappy')
     print(f"OOS Matrix exported: {oos_df.shape[0]} simulated execution rows.")
 
-    # Train final model on 100% of the data for live deployment
     print("Training final production model...")
     q_all = df.groupby('Date').size().values
     full_data = lgb.Dataset(df[features], label=df['relevance'], group=q_all)
@@ -190,7 +186,13 @@ if __name__ == "__main__":
         print(f"Optimization halted early: {e}")
     
     print("\nOptimization Complete.")
-    print("Best Trial NDCG:", study.best_trial.value)
-    print("Best Parameters:", study.best_trial.params)
     
-    generate_oos_predictions(df, features, cv_splits, study.best_trial.params)
+    try:
+        best_trial = study.best_trial
+        print("Best Trial NDCG:", best_trial.value)
+        print("Best Parameters:", best_trial.params)
+        
+        generate_oos_predictions(df, features, cv_splits, best_trial.params)
+        
+    except ValueError:
+        print("Critical Error: No trials completed successfully. Check the Optuna logs above.")
