@@ -1,0 +1,43 @@
+name: Step 3 - LightGBM Alpha Ranker Training
+
+on:
+  workflow_dispatch: 
+
+jobs:
+  walk-forward-optimization:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python Environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install ML Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install optuna
+
+      - name: Execute 5.5 Hour Optimization Engine
+        run: python train_lightgbm.py
+
+      - name: Commit Model, DB, and OOS Signals
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Stage the optimization DB, model binary, and output signal matrix
+          git add optuna_study.db || true
+          git add best_lightgbm_ranker.joblib || true
+          git add oos_predictions.parquet || true
+          
+          git commit -m "Automated Step 3 Update: OOS Signals & Model Weights" || exit 0
+          
+          git push
