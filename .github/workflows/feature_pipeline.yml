@@ -1,10 +1,10 @@
 name: Nifty 500 Feature Engineering Pipeline
 
 on:
-  workflow_dispatch: # Triggers manually from the Actions tab only
+  workflow_dispatch: 
 
 jobs:
-  build-features:
+  build-distributed-features:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -22,26 +22,19 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install numpy pandas pyarrow
+          pip install -r requirements.txt
 
-      - name: Run Feature Engineering Engine
+      - name: Execute Distributed Feature Engine
         run: python feature_pipeline.py
 
-      - name: Verify Output Artifact
-        run: |
-          if [ ! -f "features_dataset.parquet" ]; then
-            echo "Error: features_dataset.parquet was not generated."
-            exit 1
-          fi
-          ls -lh features_dataset.parquet
-
-      - name: Commit and Push Feature Store
+      - name: Commit and Push Individual Feature Files
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          git add features_dataset.parquet
+          # Stage the entire features directory containing the individual parquet files
+          git add features/*.parquet
           
-          git commit -m "Manual trigger: engineered feature matrix update" || exit 0
+          git commit -m "Automated update: Distributed feature arrays generated" || exit 0
           
           git push
