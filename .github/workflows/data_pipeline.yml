@@ -1,0 +1,45 @@
+name: Nifty 500 Market Data Pipeline
+
+on:
+  schedule:
+    # Runs at 14:00 UTC (19:30 IST) Monday through Friday
+    - cron: '0 14 * * 1-5'
+  workflow_dispatch: 
+
+jobs:
+  fetch-and-commit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python Environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Data Science Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Added pyarrow to support Parquet engine
+          pip install pandas yfinance pyarrow
+
+      - name: Execute Download Script
+        run: python download_data.py
+
+      - name: Commit and Push Data Updates
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Stage the newly created or updated Parquet files
+          git add data/*.parquet
+          
+          # Commit the changes
+          git commit -m "Automated daily Parquet OCHLV data update" || exit 0
+          
+          # Push the changes to the main branch
+          git push
