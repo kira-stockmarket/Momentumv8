@@ -1,150 +1,180 @@
-import pandas as pd
-import numpy as np
-import lightgbm as lgb
-from stable_baselines3 import PPO
+import os
+import json
 import warnings
+import numpy as np
+import pandas as pd
+from stable_baselines3 import PPO
 
 warnings.filterwarnings("ignore")
 
-# ==========================================
-# 1. LOAD MODELS & LATEST MARKET DATA
-# ==========================================
-def load_production_models():
-    print("Loading Alpha Engine (LightGBM)...")
-    lgb_model = lgb.Booster(model_file='lgb_alpha_model.txt')
-    
-    print("Loading Risk Agent (PPO)...")
-    ppo_agent = PPO.load("best_ppo_agent.zip")
-    
-    return lgb_model, ppo_agent
+# =====================================================================
+# CONFIGURATION REPOSITORY PATHS (MAPPED TO REPO)
+# =====================================================================
+SCORED_FEATURE_STORE_PATH = "oos_predictions.parquet" 
+SCORE_COLUMN_NAME = "prediction"                  # Adjust if your script named it 'alpha_score'
+PPO_MODEL_PATH = "best_ppo_agent.zip"             
 
-def generate_target_portfolio(latest_data_path, lgb_model, ppo_agent):
-    # Load today's live Nifty 500 feature data
-    df = pd.read_csv(latest_data_path)
-    tickers = df['ticker'].values
-    features = df.drop(columns=['ticker', 'date']).values
+CURRENT_PORTFOLIO_PATH = "current_portfolio.json"
+TARGET_PORTFOLIO_PATH = "target_portfolio.json"
+ORDERS_OUTPUT_CSV = "execution_orders.csv"
+
+MAX_ASSET_WEIGHT = 0.15      # 15% Concentration Ceiling (AFM Risk Limit)
+MIN_WEIGHT_THRESHOLD = 0.02  # 2% Minimum allocation threshold
+
+# =====================================================================
+# 1. LOAD PRE-SCORED MARKET DATA (OOS PREDICTIONS)
+# =====================================================================
+def load_latest_scored_slice(filepath, score_col):
+    print(f"Loading out-of-sample predictions from: {filepath}...")
+    df = pd.read_parquet(filepath)
+
+    date_col = next((c for c in df.columns if c.lower() in ['date', 'timestamp', 'datetime']), None)
+    ticker_col = next((c for c in df.columns if c.lower() in ['ticker', 'symbol', 'instrument']), None)
+
+    if not date_col or not ticker_col:
+        raise ValueError("Dataset must contain identifiable 'date' and 'ticker' columns.")
+    if score_col not in df.columns:
+        # Fallback check if the column was named differently in your LightGBM script
+        fallback = 'alpha_score' if 'alpha_score' in df.columns else None
+        if fallback:
+            score_col = fallback
+        else:
+            raise ValueError(f"Score column '{score_col}' not found. Available columns: {list(df.columns)}")
+
+    df[date_col] = pd.to_datetime(df[date_col])
+    latest_date = df[date_col].max()
+    print(f"Latest market snapshot identified: {latest_date.strftime('%Y-%m-%d')}")
+
+    latest_slice = df[df[date_col] == latest_date].copy()
+    print(f"Loaded {len(latest_slice)} active tickers for execution.")
+    return latest_slice, ticker_col, score_col, latest_date
+
+# =====================================================================
+# 2. EXTRACT TOP ALPHA CANDIDATES 
+# =====================================================================
+def extract_top_candidates(df_slice, ticker_col, score_col):
+    top_20_df = df_slice.sort_values(by=score_col, ascending=False).head(20).reset_index(drop=True)
+    top_20_tickers = top_20_df[ticker_col].values
+
+    exclude_cols = [ticker_col.lower(), score_col.lower(), 'date', 'datetime', 'timestamp', 'target', 'return']
+    feature_cols = [c for c in top_20_df.columns if c.lower() not in exclude_cols]
     
-    # ---------------------------------------
-    # PHASE 1: ALPHA GENERATION (LightGBM)
-    # ---------------------------------------
-    # Predict momentum scores for all 500 stocks
-    alpha_scores = lgb_model.predict(features)
-    
-    # Rank and extract the Top 20 Candidates
-    top_20_idx = np.argsort(alpha_scores)[-20:][::-1]
-    top_20_tickers = tickers[top_20_idx]
-    top_20_features = features[top_20_idx]
-    
-    # ---------------------------------------
-    # PHASE 2: RISK MANAGEMENT (PPO Agent)
-    # ---------------------------------------
-    # Flatten the state to pass to the RL agent (same shape as training)
-    observation_state = top_20_features.flatten()
-    
-    # Get deterministic execution weights from the trained agent
-    action, _states = ppo_agent.predict(observation_state, deterministic=True)
-    
-    # ---------------------------------------
-    # PHASE 3: INSTITUTIONAL SIZING
-    # ---------------------------------------
-    # Convert RL actions to softmax probabilities to ensure they sum to <= 1.0
+    top_20_features = top_20_df[feature_cols].select_dtypes(include=[np.number]).values
+    return top_20_tickers, top_20_features
+
+# =====================================================================
+# 3. RUN PPO INFERENCE & ENFORCE 15% CAP + CASH SHIELD
+# =====================================================================
+def run_risk_engine(top_20_tickers, top_20_features, model_path):
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"PPO agent model missing at {model_path}")
+
+    print(f"Loading PPO Risk Manager from: {model_path}...")
+    ppo_agent = PPO.load(model_path)
+
+    obs = top_20_features.flatten()
+    expected_dim = ppo_agent.observation_space.shape[0]
+
+    if len(obs) != expected_dim:
+        obs = np.pad(obs, (0, expected_dim - len(obs))) if len(obs) < expected_dim else obs[:expected_dim]
+
+    action, _ = ppo_agent.predict(obs, deterministic=True)
+
     exp_weights = np.exp(action - np.max(action))
-    raw_weights = exp_weights / exp_weights.sum()
-    
-    # Enforce the 15% Maximum Asset Concentration Limit
-    target_weights = np.clip(raw_weights, 0.0, 0.15)
-    
-    # Calculate the remaining capital for the Defensive Cash Shield
-    total_equity_exposure = np.sum(target_weights)
-    cash_weight = 1.0 - total_equity_exposure
-    
-    # Build the final dictionary
-    target_portfolio = {ticker: weight for ticker, weight in zip(top_20_tickers, target_weights) if weight > 0.01}
-    target_portfolio['CASH_LIQUIDBEES'] = cash_weight
-    
+    raw_weights = exp_weights / np.sum(exp_weights)
+
+    clipped_weights = np.clip(raw_weights[:len(top_20_tickers)], 0.0, MAX_ASSET_WEIGHT)
+    total_equity_weight = np.sum(clipped_weights)
+    cash_shield_weight = max(0.0, 1.0 - float(total_equity_weight))
+
+    target_portfolio = {}
+    for ticker, weight in zip(top_20_tickers, clipped_weights):
+        if weight >= MIN_WEIGHT_THRESHOLD:
+            target_portfolio[ticker] = round(float(weight), 4)
+
+    target_portfolio['CASH_LIQUIDBEES'] = round(cash_shield_weight, 4)
     return target_portfolio
 
-# ==========================================
-# 2. GENERATE EXECUTION DASHBOARD
-# ==========================================
-def print_execution_dashboard(target_portfolio, current_portfolio=None):
-    if current_portfolio is None:
-        current_portfolio = {} # Simulating an empty portfolio for the first run
-        
-    print("\n" + "="*55)
-    print(" 🚀 NIFTY 500 MOMENTUM: FORWARD TESTING DASHBOARD")
-    print("="*55)
-    
-    print("\n[ TARGET PORTFOLIO ALLOCATION ]")
-    print("-" * 55)
+# =====================================================================
+# 4. GENERATE REBALANCE ORDERS & DELTAS
+# =====================================================================
+def generate_order_sheet(target_portfolio, current_portfolio_path):
+    if os.path.exists(current_portfolio_path):
+        with open(current_portfolio_path, 'r') as f:
+            current_portfolio = json.load(f)
+    else:
+        current_portfolio = {'CASH_LIQUIDBEES': 1.0}
+
+    orders = []
+
+    for asset, curr_w in current_portfolio.items():
+        if asset == 'CASH_LIQUIDBEES': continue
+        tgt_w = target_portfolio.get(asset, 0.0)
+
+        if tgt_w == 0.0:
+            orders.append({'action': 'SELL ALL', 'ticker': asset, 'current_pct': curr_w * 100, 'target_pct': 0.0, 'delta_pct': -curr_w * 100, 'note': 'Rank drop'})
+        elif tgt_w < (curr_w - 0.01):
+            orders.append({'action': 'TRIM', 'ticker': asset, 'current_pct': curr_w * 100, 'target_pct': tgt_w * 100, 'delta_pct': (tgt_w - curr_w) * 100, 'note': 'Trimming excess'})
+
+    for asset, tgt_w in target_portfolio.items():
+        if asset == 'CASH_LIQUIDBEES': continue
+        curr_w = current_portfolio.get(asset, 0.0)
+
+        if curr_w == 0.0:
+            orders.append({'action': 'BUY NEW', 'ticker': asset, 'current_pct': 0.0, 'target_pct': tgt_w * 100, 'delta_pct': tgt_w * 100, 'note': 'New Top Alpha'})
+        elif tgt_w > (curr_w + 0.01):
+            orders.append({'action': 'ADD MORE', 'ticker': asset, 'current_pct': curr_w * 100, 'target_pct': tgt_w * 100, 'delta_pct': (tgt_w - curr_w) * 100, 'note': 'Scaling up'})
+        elif abs(tgt_w - curr_w) <= 0.01:
+            orders.append({'action': 'HOLD', 'ticker': asset, 'current_pct': curr_w * 100, 'target_pct': tgt_w * 100, 'delta_pct': 0.0, 'note': 'In tolerance'})
+
+    return orders, current_portfolio
+
+# =====================================================================
+# 5. CLI & GITHUB ACTIONS RENDERING
+# =====================================================================
+def display_dashboard(target_portfolio, orders, latest_date):
+    print("\n" + "=" * 70)
+    print(f" 🚀 NIFTY 500 MOMENTUM DASHBOARD | CYCLE DATE: {latest_date.strftime('%Y-%m-%d')}")
+    print("=" * 70)
+
+    print("\n[ TARGET WEIGHT ALLOCATION ]")
+    print("-" * 70)
     for asset, weight in sorted(target_portfolio.items(), key=lambda x: x[1], reverse=True):
-        print(f"  {asset:<20} | Target: {weight*100:>5.2f}%")
-        
-    print("\n[ ACTION SHEET: BROKER EXECUTION ]")
-    print("-" * 55)
-    
-    # 1. SELL ORDERS (Assets we hold but AI dropped, or need trimming)
-    sells = []
-    for asset, curr_weight in current_portfolio.items():
-        if asset == 'CASH_LIQUIDBEES': continue
-        tgt_weight = target_portfolio.get(asset, 0.0)
-        
-        if tgt_weight == 0.0:
-            sells.append(f"🔴 SELL ALL    -> {asset:<15} (Momentum decay detected)")
-        elif tgt_weight < curr_weight:
-            trim_amt = curr_weight - tgt_weight
-            sells.append(f"🟡 TRIM        -> {asset:<15} (Reduce by {trim_amt*100:.2f}%)")
-            
-    # 2. BUY ORDERS (New alphas or scaling up)
-    buys = []
-    for asset, tgt_weight in target_portfolio.items():
-        if asset == 'CASH_LIQUIDBEES': continue
-        curr_weight = current_portfolio.get(asset, 0.0)
-        
-        if curr_weight == 0.0:
-            buys.append(f"🟢 BUY NEW     -> {asset:<15} (Allocate {tgt_weight*100:.2f}%)")
-        elif tgt_weight > curr_weight:
-            add_amt = tgt_weight - curr_weight
-            buys.append(f"🔵 ADD MORE    -> {asset:<15} (Increase by {add_amt*100:.2f}%)")
+        print(f"  {asset:<18} | Target: {weight*100:>6.2f}%")
 
-    # 3. HOLD ORDERS
-    holds = []
-    for asset, curr_weight in current_portfolio.items():
-        if asset == 'CASH_LIQUIDBEES': continue
-        tgt_weight = target_portfolio.get(asset, 0.0)
-        if abs(tgt_weight - curr_weight) < 0.01 and tgt_weight > 0:
-            holds.append(f"⚪ HOLD        -> {asset:<15} (Target matched)")
+    print("\n[ EXECUTION ACTION SHEET ]")
+    print("-" * 70)
+    for order in orders:
+        badge = f"[{order['action']}]"
+        print(f"  {badge:<12} {order['ticker']:<15} | Current: {order['current_pct']:>5.2f}% -> Target: {order['target_pct']:>5.2f}% | {order['note']}")
 
-    for action in sells + buys + holds:
-        print(f"  {action}")
+    cash_target = target_portfolio.get('CASH_LIQUIDBEES', 0.0)
+    print("-" * 70)
+    print(f"🛡️  DEFENSIVE CASH SHIELD : {cash_target*100:.2f}% into LiquidBeES / TREPS")
+    print("=" * 70 + "\n")
 
-    print("-" * 55)
-    cash_tgt = target_portfolio.get('CASH_LIQUIDBEES', 0.0)
-    print(f"🛡️  DEFENSE : Route {cash_tgt*100:.2f}% of total equity to LiquidBeES / TREPS")
-    print("="*55)
+    summary_path = os.getenv("GITHUB_STEP_SUMMARY")
+    if summary_path:
+        markdown = [
+            f"# 🚀 Nifty 500 Momentum Rebalance Dashboard ({latest_date.strftime('%Y-%m-%d')})\n",
+            f"**Defensive Cash Shield:** `{cash_target*100:.2f}%` | **Total Equity:** `{(1-cash_target)*100:.2f}%`\n",
+            "### 📋 Broker Action Sheet\n",
+            "| Action | Ticker | Current Weight | Target Weight | Change | Note |",
+            "| :--- | :--- | :---: | :---: | :---: | :--- |"
+        ]
+        for o in orders:
+            markdown.append(f"| **{o['action']}** | `{o['ticker']}` | {o['current_pct']:.2f}% | {o['target_pct']:.2f}% | {o['delta_pct']:+.2f}% | {o['note']} |")
+        markdown.append(f"\n> **Risk Guidance:** Route **{cash_target*100:.2f}%** to LiquidBeES to maintain defensive barrier.\n")
+        with open(summary_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(markdown))
 
 if __name__ == "__main__":
-    # Simulate loading models and generating today's execution sheet
-    # lgb_model, ppo_agent = load_production_models()
-    # target_portfolio = generate_target_portfolio("latest_nifty500_features.csv", lgb_model, ppo_agent)
-    
-    # MOCK DATA FOR DASHBOARD PREVIEW
-    mock_target_portfolio = {
-        'INFY': 0.15,
-        'ASIANPAINT': 0.12,
-        'BAJFINANCE': 0.15,
-        'TRENT': 0.10,
-        'ZOMATO': 0.08,
-        'HAL': 0.10,
-        'CASH_LIQUIDBEES': 0.30 
-    }
-    
-    mock_current_portfolio = {
-        'INFY': 0.15,          # Matched (Hold)
-        'ASIANPAINT': 0.18,    # Trim to 12%
-        'RELIANCE': 0.10,      # Sell All (Momentum dropped)
-        'TRENT': 0.05,         # Add More to 10%
-        'CASH_LIQUIDBEES': 0.52
-    }
-    
-    print_execution_dashboard(mock_target_portfolio, mock_current_portfolio)
+    df_slice, ticker_col, score_col, latest_date = load_latest_scored_slice(SCORED_FEATURE_STORE_PATH, SCORE_COLUMN_NAME)
+    top_tickers, top_features = extract_top_candidates(df_slice, ticker_col, score_col)
+    target_portfolio = run_risk_engine(top_tickers, top_features, PPO_MODEL_PATH)
+    orders, current_portfolio = generate_order_sheet(target_portfolio, CURRENT_PORTFOLIO_PATH)
+    display_dashboard(target_portfolio, orders, latest_date)
+
+    with open(TARGET_PORTFOLIO_PATH, 'w') as f:
+        json.dump(target_portfolio, f, indent=4)
+    pd.DataFrame(orders).to_csv(ORDERS_OUTPUT_CSV, index=False)
