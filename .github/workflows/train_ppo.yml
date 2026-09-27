@@ -34,13 +34,26 @@ jobs:
           path: best_ppo_agent.zip
           retention-days: 90
 
-      - name: Commit PPO Agent Weights
+      # --- FIX: also archive the train/eval split marker --------------------------
+      # train_ppo.py writes eval_start_date.txt to mark which dates the agent
+      # was NOT trained on. Without uploading/committing it, it's lost when
+      # this runner is torn down, and the separate run_backtest.yml job (on a
+      # fresh runner) has no way to know the split — hence the "not found" error.
+      - name: Archive Train/Eval Split Marker as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-split-marker
+          path: eval_start_date.txt
+          retention-days: 90
+      # -----------------------------------------------------------------------------
+
+      - name: Commit PPO Agent Weights and Split Marker
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          git add best_ppo_agent.zip
-          git commit -m "Automated Step 4 Update: PPO Risk Allocator Policy Saved" || exit 0
+          git add best_ppo_agent.zip eval_start_date.txt
+          git commit -m "Automated Step 4 Update: PPO Risk Allocator Policy + Eval Split Saved" || exit 0
           
           git pull origin main --rebase
           git push origin main
