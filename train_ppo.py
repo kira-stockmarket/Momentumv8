@@ -36,7 +36,7 @@ if __name__ == "__main__":
     ppo_params = {
         "policy": "MlpPolicy",
         "env": vec_env,
-        "learning_rate": linear_schedule(3e-4), # Decays to 0 as training ends
+        "learning_rate": linear_schedule(3e-4),
         "n_steps": 2048,
         "batch_size": 256,
         "n_epochs": 10,
