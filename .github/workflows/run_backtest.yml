@@ -27,9 +27,13 @@ jobs:
       - name: Run Deterministic Backtest Engine
         run: python backtest_simulation.py
 
+      # --- FIX: filename updated to match the fixed backtest_simulation.py, -------
+      # which now writes institutional_backtest_results_holdout.csv (renamed on
+      # purpose so it can't be confused with old, training-contaminated results).
       - name: Upload Tearsheet & Equity Curve
         uses: actions/upload-artifact@v4
         with:
           name: institutional-backtest-results
-          path: institutional_backtest_results.csv
+          path: institutional_backtest_results_holdout.csv
           retention-days: 30
+      # -----------------------------------------------------------------------------
