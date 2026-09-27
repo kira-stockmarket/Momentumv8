@@ -1,0 +1,40 @@
+name: Step 4 - RL PPO Allocator Training
+
+on:
+  workflow_dispatch: 
+
+jobs:
+  train-rl-agent:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python Environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Torch and RL Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Train Institutional PPO Portfolio Allocator
+        run: python train_ppo.py
+
+      - name: Commit PPO Agent Weights
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Stage the serialized PyTorch model binary
+          git add best_ppo_agent.zip || true
+          
+          git commit -m "Automated Step 4 Update: PPO Risk Allocator Policy Saved" || exit 0
+          
+          git push
