@@ -6,9 +6,9 @@ on:
       portfolio_capital:
         description: 'Current Portfolio Capital (in INR)'
         required: false
-        default: '100000000' # Default 10 Crore
+        default: '100000000'
   schedule:
-    # Runs at 10:30 UTC (4:00 PM IST) every Monday to Friday after NSE market close
+    # Runs at 10:30 UTC (4:00 PM IST) Monday to Friday after NSE close
     - cron: '30 10 * * 1-5'
 
 permissions:
@@ -31,7 +31,7 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install numpy pandas lightgbm stable-baselines3 torch
+          pip install numpy pandas lightgbm stable-baselines3 torch pyarrow
 
       - name: Run Forward Test Inference Engine
         env:
