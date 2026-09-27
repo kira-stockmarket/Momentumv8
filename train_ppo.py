@@ -3,11 +3,18 @@ import sys
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 from trading_env import PortfolioAllocationEnv
+from typing import Callable
 
 # --- Configuration ---
 DATA_PATH = "oos_predictions.parquet"
 MODEL_OUTPUT = "best_ppo_agent.zip"
-TOTAL_TIMESTEPS = 250000
+TOTAL_TIMESTEPS = 2_500_000  # 25 Lakh steps
+
+def linear_schedule(initial_value: float) -> Callable[[float], float]:
+    """Linear learning rate decay to stabilize policy updates over 2.5M steps."""
+    def func(progress_remaining: float) -> float:
+        return progress_remaining * initial_value
+    return func
 
 if __name__ == "__main__":
     if not os.path.exists(DATA_PATH):
@@ -16,7 +23,6 @@ if __name__ == "__main__":
 
     print("Initializing Advanced Financial Management (AFM) PPO Allocator...")
     
-    # Instantiate custom execution environment simulating 1 Crore base capital
     env = PortfolioAllocationEnv(
         data_path=DATA_PATH,
         top_k=20,
@@ -25,15 +31,12 @@ if __name__ == "__main__":
         tx_cost=0.0015
     )
     
-    # Vectorize for Stable-Baselines3 API conformity
     vec_env = DummyVecEnv([lambda: env])
     
-    # --- PPO Hyperparameters ---
-    # Optimized for noisy financial time-series and strict entropy preservation
     ppo_params = {
         "policy": "MlpPolicy",
         "env": vec_env,
-        "learning_rate": 3e-4,
+        "learning_rate": linear_schedule(3e-4), # Decays to 0 as training ends
         "n_steps": 2048,
         "batch_size": 256,
         "n_epochs": 10,
@@ -47,7 +50,7 @@ if __name__ == "__main__":
     
     model = PPO(**ppo_params)
     
-    print(f"Starting Reinforcement Learning Phase: Executing {TOTAL_TIMESTEPS} market transitions...")
+    print(f"Starting Reinforcement Learning Phase: Executing {TOTAL_TIMESTEPS:,} market transitions...")
     
     try:
         model.learn(total_timesteps=TOTAL_TIMESTEPS)
@@ -58,7 +61,6 @@ if __name__ == "__main__":
     print(f"Training Complete. Serializing PyTorch model weights to {MODEL_OUTPUT}...")
     model.save(MODEL_OUTPUT)
     
-    # --- Execute Final Validation Walkthrough ---
     obs = vec_env.reset()
     done = False
     
