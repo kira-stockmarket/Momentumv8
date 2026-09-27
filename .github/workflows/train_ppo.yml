@@ -27,14 +27,20 @@ jobs:
       - name: Train Institutional PPO Portfolio Allocator
         run: python train_ppo.py
 
+      - name: Archive PPO Model Weights as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ppo-agent-binary
+          path: best_ppo_agent.zip
+          retention-days: 90
+
       - name: Commit PPO Agent Weights
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Stage the serialized PyTorch model binary
-          git add best_ppo_agent.zip || true
-          
+          git add best_ppo_agent.zip
           git commit -m "Automated Step 4 Update: PPO Risk Allocator Policy Saved" || exit 0
           
-          git push
+          git pull origin main --rebase
+          git push origin main
