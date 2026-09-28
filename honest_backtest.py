@@ -7,7 +7,7 @@ warnings.filterwarnings("ignore")
 # =====================================================================
 # CONFIGURATION & HONEST COSTS
 # =====================================================================
-DATA_PATH = "nifty500_features_scored.csv" # Or oos_predictions.parquet
+DATA_PATH = "oos_predictions.parquet" # Or oos_predictions.parquet
 SCORE_COL = "alpha_score"                  # LightGBM predictions column
 
 INITIAL_CAPITAL = 100_000_000.0            # ₹10 Crore
