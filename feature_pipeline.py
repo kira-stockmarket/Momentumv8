@@ -5,7 +5,7 @@ import pandas as pd
 
 INPUT_DIR = "data"
 OUTPUT_DIR = "features"
-FORWARD_HORIZON = 10
+from config import FORWARD_HORIZON
 
 # Ensure output directory exists
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -30,13 +30,28 @@ def compute_atr(df, period=14):
     tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
     return tr.rolling(period).mean()
 
-def process_single_stock(symbol, file_path):
-    df = pd.read_parquet(file_path).sort_index()
-    df = df.ffill()
-    
-    if len(df) < 250:
-        return 
 
+def rolling_last_pct_rank(series, w):
+    """Percentile rank (average method) of the last value inside each rolling window.
+    Exactly equivalent to rolling(w).apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1])
+    but vectorised, so the same code can be used cheaply for live scoring."""
+    x = series.to_numpy(dtype=np.float64)
+    out = np.full(len(x), np.nan)
+    if len(x) >= w:
+        win = np.lib.stride_tricks.sliding_window_view(x, w)
+        last = win[:, -1][:, None]
+        rank = (win < last).sum(axis=1) + ((win == last).sum(axis=1) + 1) / 2.0
+        res = rank / w
+        res[np.isnan(win).any(axis=1)] = np.nan
+        out[w - 1:] = res
+    return pd.Series(out, index=series.index)
+
+def build_feature_frame(df, include_targets=True):
+    """Builds the raw (uncleaned) feature frame from a date-sorted, forward-filled OHLCV frame.
+
+    Used by BOTH training (include_targets=True) and live scoring (include_targets=False), so
+    the two can never drift apart. Everything here uses only data available at each row's date;
+    only Feature Block 6 (the labels) looks forward and is skipped for live scoring."""
     close = df['Close']
     open_p = df['Open']
     high = df['High']
@@ -54,7 +69,7 @@ def process_single_stock(symbol, file_path):
         f_dict[f'dist_sma_{w}'] = (close / (sma + 1e-9)) - 1.0
         ema = close.ewm(span=w, adjust=False).mean()
         f_dict[f'dist_ema_{w}'] = (close / (ema + 1e-9)) - 1.0
-        f_dict[f'price_rank_{w}d'] = close.rolling(w).apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1], raw=True)
+        f_dict[f'price_rank_{w}d'] = rolling_last_pct_rank(close, w)
 
     # --- Feature Block 2: Momentum Oscillators ---
     rsi_windows = [7, 10, 14, 21, 28, 40, 60]
@@ -108,22 +123,33 @@ def process_single_stock(symbol, file_path):
     f_dict['upper_shadow_ratio'] = (high - np.maximum(open_p, close)) / ((high - low) + 1e-9)
     f_dict['lower_shadow_ratio'] = (np.minimum(open_p, close) - low) / ((high - low) + 1e-9)
 
-    # --- Feature Block 6: Risk-Adjusted Target Label ---
-    fwd_exec_price = open_p.shift(-1)
-    fwd_exit_price = close.shift(-(1 + FORWARD_HORIZON))
-    raw_fwd_ret = (fwd_exit_price / fwd_exec_price) - 1.0
+    if include_targets:
+        # --- Feature Block 6: Risk-Adjusted Target Label (LOOKS FORWARD - training only) ---
+        fwd_exec_price = open_p.shift(-1)
+        fwd_exit_price = close.shift(-(1 + FORWARD_HORIZON))
+        raw_fwd_ret = (fwd_exit_price / fwd_exec_price) - 1.0
 
-    gk_vol = f_dict['gk_vol_20'].replace(0, np.nan)
-    f_dict['target_fwd_risk_adj'] = raw_fwd_ret / (gk_vol * np.sqrt(FORWARD_HORIZON / 252.0))
-    f_dict['target_raw_ret'] = raw_fwd_ret
+        gk_vol = f_dict['gk_vol_20'].replace(0, np.nan)
+        f_dict['target_fwd_risk_adj'] = raw_fwd_ret / (gk_vol * np.sqrt(FORWARD_HORIZON / 252.0))
+        f_dict['target_raw_ret'] = raw_fwd_ret
 
     # --- Compile Dictionary into DataFrame (Eliminates Fragmentation) ---
-    feat = pd.DataFrame(f_dict, index=df.index)
+    return pd.DataFrame(f_dict, index=df.index)
+
+
+def process_single_stock(symbol, file_path):
+    df = pd.read_parquet(file_path).sort_index()
+    df = df.ffill()
+
+    if len(df) < 250:
+        return
+
+    feat = build_feature_frame(df, include_targets=True)
 
     # --- Strict Cleaning & Downcasting ---
     feat.replace([np.inf, -np.inf], np.nan, inplace=True)
-    feat.dropna(inplace=True) 
-    
+    feat.dropna(inplace=True)
+
     float_cols = feat.select_dtypes(include=['float64']).columns
     feat[float_cols] = feat[float_cols].astype('float32')
 
