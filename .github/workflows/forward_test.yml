@@ -1,0 +1,80 @@
+name: Forward Test (Paper Trading)
+
+on:
+  workflow_dispatch:
+    inputs:
+      portfolio_capital:
+        description: 'Starting capital in INR (only used on the very first run)'
+        required: false
+        default: '100000000'
+  # Runs AFTER the daily data pipeline finishes. The old dashboard ran at 16:00 IST, i.e. BEFORE
+  # that day's data was fetched at 19:30 IST, so it always traded on yesterday's bar.
+  workflow_run:
+    workflows: ["Nifty 500 Market Data Pipeline"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: forward-test
+  cancel-in-progress: false
+
+jobs:
+  paper-trade:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python Environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Blocking: if trading_env.py or the models ever drift from the live decision path,
+      # no rebalance is staged.
+      - name: Parity and engine tests
+        run: python test_forward_test.py
+
+      - name: Run forward test
+        id: ft
+        continue-on-error: true      # still persist the mark-to-market below, then fail visibly
+        env:
+          PORTFOLIO_CAPITAL: ${{ github.event.inputs.portfolio_capital || '100000000' }}
+        run: python forward_test.py
+
+      - name: Persist state
+        if: always()
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add forward_test/
+          git commit -m "Forward test update $(date -u +%F)" || exit 0
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push origin main && break
+            sleep 5
+          done
+
+      - name: Upload execution sheet
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forward-test
+          path: forward_test/
+          retention-days: 30
+
+      - name: Fail the run if the forward test refused to trade
+        if: steps.ft.outcome == 'failure'
+        run: |
+          echo "Forward test exited non-zero (2 = stale/incomplete data, 3 = signal health failure)."
+          exit 1
