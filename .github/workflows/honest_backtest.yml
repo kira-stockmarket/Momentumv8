@@ -1,0 +1,86 @@
+import os
+import json
+import pandas as pd
+import numpy as np
+
+def export_github_summary(target_portfolio, current_portfolio, orders):
+    summary_path = os.getenv("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+
+    cash_weight = target_portfolio.get('CASH_LIQUIDBEES', 0.0)
+    equity_exposure = 1.0 - cash_weight
+
+    markdown = []
+    markdown.append("# 🚀 Nifty 500 Momentum: Rebalance Dashboard\n")
+    markdown.append(f"**Equity Exposure:** `{equity_exposure*100:.2f}%` | **Defensive Cash Shield:** `{cash_weight*100:.2f}%`\n")
+    
+    markdown.append("### 📋 Action Sheet (Broker Orders)\n")
+    markdown.append("| Status | Ticker | Current Weight | Target Weight | Action Detail |")
+    markdown.append("| :--- | :--- | :---: | :---: | :--- |")
+    
+    for order in orders:
+        markdown.append(f"| {order['badge']} | **{order['ticker']}** | {order['curr']*100:.2f}% | {order['target']*100:.2f}% | {order['detail']} |")
+
+    markdown.append("\n### 🛡️ Risk & Yield Management\n")
+    markdown.append(f"> Allocate **{cash_weight*100:.2f}%** to **LiquidBeES / Overnight Liquid Fund** (6.5% Annualized Yield Proxy) to maintain the drawdown barrier.\n")
+
+    with open(summary_path, "a", encoding="utf-8") as f:
+        f.write("\n".join(markdown))
+
+def generate_orders(target_portfolio, current_portfolio):
+    orders = []
+    
+    # 1. Evaluate Sells & Trims
+    for asset, curr_w in current_portfolio.items():
+        if asset == 'CASH_LIQUIDBEES': continue
+        tgt_w = target_portfolio.get(asset, 0.0)
+        
+        if tgt_w == 0.0:
+            orders.append({
+                'badge': '🔴 SELL ALL',
+                'ticker': asset,
+                'curr': curr_w,
+                'target': 0.0,
+                'detail': 'Momentum decay / rank dropped below cut-off'
+            })
+        elif tgt_w < curr_w - 0.01:
+            orders.append({
+                'badge': '🟡 TRIM',
+                'ticker': asset,
+                'curr': curr_w,
+                'target': tgt_w,
+                'detail': f'Trim position by {(curr_w - tgt_w)*100:.2f}%'
+            })
+
+    # 2. Evaluate Buys & Holds
+    for asset, tgt_w in target_portfolio.items():
+        if asset == 'CASH_LIQUIDBEES': continue
+        curr_w = current_portfolio.get(asset, 0.0)
+        
+        if curr_w == 0.0:
+            orders.append({
+                'badge': '🟢 BUY NEW',
+                'ticker': asset,
+                'curr': 0.0,
+                'target': tgt_w,
+                'detail': f'Initiate position at {tgt_w*100:.2f}%'
+            })
+        elif tgt_w > curr_w + 0.01:
+            orders.append({
+                'badge': '🔵 ADD MORE',
+                'ticker': asset,
+                'curr': curr_w,
+                'target': tgt_w,
+                'detail': f'Increase weight by {(tgt_w - curr_w)*100:.2f}%'
+            })
+        elif abs(tgt_w - curr_w) <= 0.01:
+            orders.append({
+                'badge': '⚪ HOLD',
+                'ticker': asset,
+                'curr': curr_w,
+                'target': tgt_w,
+                'detail': 'Holding within tolerance target'
+            })
+
+    return orders
