@@ -1,6 +1,6 @@
-# Forward test - 2026-10-07
+# Forward test - 2026-10-08
 
-**NAV:** INR 99,857  |  **Since inception (2026-09-25):** -0.14%  |  **Drawdown:** 0.14%  |  **Cash:** 26.5%
+**NAV:** INR 99,864  |  **Since inception (2026-09-25):** -0.14%  |  **Drawdown:** 0.14%  |  **Cash:** 26.5%
 
 > Not a rebalance day - holding.
 
@@ -14,5 +14,5 @@
 | GODREJCP | 6.63% |
 | LAURUSLABS | 5.97% |
 | NTPC | 4.27% |
-| HINDUNILVR | 1.70% |
+| HINDUNILVR | 1.69% |
 | ONGC | 1.57% |
