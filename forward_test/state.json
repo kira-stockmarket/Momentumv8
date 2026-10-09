@@ -2,12 +2,12 @@
   "version": 1,
   "inception_date": "2026-09-25",
   "initial_capital": 100000.0,
-  "cash": 26436.862812816926,
+  "cash": 26443.68184489166,
   "positions": {
     "LAURUSLABS": 5959.832373186431,
-    "ITC": 15050.356095925583,
+    "ITC": 15050.356095925585,
     "NTPC": 4263.083851068815,
-    "ONGC": 1566.447760831148,
+    "ONGC": 1566.4477608311483,
     "DIVISLAB": 8755.046390602236,
     "GODREJCP": 6625.317877070046,
     "HINDUNILVR": 1692.6729035383496,
@@ -15,7 +15,7 @@
     "POWERGRID": 14595.64946229967
   },
   "peak_value": 100000.0,
-  "last_processed_date": "2026-10-08",
+  "last_processed_date": "2026-10-09",
   "last_decision_date": "2026-09-25",
   "last_slot_weights": [
     0.060162533074617386,

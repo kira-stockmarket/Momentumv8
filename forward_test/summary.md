@@ -1,6 +1,6 @@
-# Forward test - 2026-10-08
+# Forward test - 2026-10-09
 
-**NAV:** INR 99,864  |  **Since inception (2026-09-25):** -0.14%  |  **Drawdown:** 0.14%  |  **Cash:** 26.5%
+**NAV:** INR 99,871  |  **Since inception (2026-09-25):** -0.13%  |  **Drawdown:** 0.13%  |  **Cash:** 26.5%
 
 > Not a rebalance day - holding.
 
@@ -9,7 +9,7 @@
 |---|---|
 | ITC | 15.07% |
 | IRCTC | 14.94% |
-| POWERGRID | 14.62% |
+| POWERGRID | 14.61% |
 | DIVISLAB | 8.77% |
 | GODREJCP | 6.63% |
 | LAURUSLABS | 5.97% |
