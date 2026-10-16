@@ -1,18 +1,18 @@
-# Forward test - 2026-10-15
+# Forward test - 2026-10-16
 
-**NAV:** INR 100,051  |  **Since inception (2026-09-25):** +0.05%  |  **Drawdown:** 0.00%  |  **Cash:** 23.4%
+**NAV:** INR 100,616  |  **Since inception (2026-09-25):** +0.62%  |  **Drawdown:** 0.00%  |  **Cash:** 23.3%
 
 > Not a rebalance day - holding.
 
 ### Holdings
 | Symbol | Weight |
 |---|---|
-| ABREL | 15.49% |
-| MRF | 14.98% |
-| BHARTIARTL | 12.25% |
-| AUROPHARMA | 11.54% |
-| PFIZER | 7.99% |
-| VEDL | 6.83% |
-| LAURUSLABS | 5.37% |
-| SUNPHARMA | 2.10% |
+| ABREL | 15.52% |
+| MRF | 14.96% |
+| BHARTIARTL | 12.52% |
+| AUROPHARMA | 11.40% |
+| PFIZER | 7.95% |
+| VEDL | 6.79% |
+| LAURUSLABS | 5.45% |
+| SUNPHARMA | 2.09% |
 | BRITANNIA | 0.01% |
