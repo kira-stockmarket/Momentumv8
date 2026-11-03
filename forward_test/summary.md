@@ -1,8 +1,8 @@
-# Forward test - 2026-11-02
+# Forward test - 2026-11-03
 
-**NAV:** INR 98,575  |  **Since inception (2026-09-25):** -1.42%  |  **Drawdown:** 2.03%  |  **Cash:** 24.6%
+**NAV:** INR 98,582  |  **Since inception (2026-09-25):** -1.42%  |  **Drawdown:** 2.03%  |  **Cash:** 24.6%
 
-**Ann. vol:** 6.0%  |  **Days live:** 25
+**Ann. vol:** 5.9%  |  **Days live:** 26
 
 > Not a rebalance day - holding.
 
