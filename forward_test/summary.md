@@ -1,8 +1,8 @@
-# Forward test - 2026-11-05
+# Forward test - 2026-11-06
 
-**NAV:** INR 98,594  |  **Since inception (2026-09-25):** -1.41%  |  **Drawdown:** 2.02%  |  **Cash:** 24.6%
+**NAV:** INR 98,600  |  **Since inception (2026-09-25):** -1.40%  |  **Drawdown:** 2.01%  |  **Cash:** 24.6%
 
-**Ann. vol:** 5.6%  |  **Days live:** 28
+**Ann. vol:** 5.5%  |  **Days live:** 29
 
 > Not a rebalance day - holding.
 
@@ -10,7 +10,7 @@
 | Symbol | Weight |
 |---|---|
 | NMDC | 15.37% |
-| ENDURANCE | 15.19% |
+| ENDURANCE | 15.18% |
 | SBIN | 13.40% |
 | VOLTAS | 10.46% |
 | ARE&M | 7.67% |
