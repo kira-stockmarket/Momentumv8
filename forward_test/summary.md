@@ -1,8 +1,8 @@
-# Forward test - 2026-11-17
+# Forward test - 2026-11-18
 
-**NAV:** INR 98,073  |  **Since inception (2026-09-25):** -1.93%  |  **Drawdown:** 2.53%  |  **Cash:** 18.2%
+**NAV:** INR 98,077  |  **Since inception (2026-09-25):** -1.92%  |  **Drawdown:** 2.53%  |  **Cash:** 18.2%
 
-**Ann. vol:** 6.5%  |  **Days live:** 35
+**Ann. vol:** 6.4%  |  **Days live:** 36
 
 > Not a rebalance day - holding.
 
@@ -14,7 +14,7 @@
 | KIRLOSENG | 13.82% |
 | RRKABEL | 10.79% |
 | NATCOPHARM | 8.35% |
-| ANANDRATHI | 7.97% |
+| ANANDRATHI | 7.96% |
 | AUROPHARMA | 6.17% |
 | DIVISLAB | 3.13% |
 | APTUS | 1.41% |
